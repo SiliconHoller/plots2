@@ -13,7 +13,6 @@ development:
     port: 8982
     log_level: INFO
     path: /solr/development
-  disabled: true
 
 test:
   solr:
@@ -21,4 +20,4 @@ test:
     port: 8981
     log_level: WARNING
     path: /solr/test
-  disabled: true
+    
