@@ -22,7 +22,9 @@ class DrupalNode < ActiveRecord::Base
 
   searchable do
     text :title, boost: 5
-    text :body
+    text :body do
+      body.to_s.gsub!(/[[:cntrl:]]/,'')
+    end
     time :updated_at
     string :status
     string :updated_month
@@ -348,9 +350,9 @@ class DrupalNode < ActiveRecord::Base
   end
 
   # power tags have "key:value" format, and should be searched with a "key:*" wildcard
-  def has_power_tag(tag)
+  def has_power_tag(key)
     tids = DrupalTag.includes(:drupal_node_community_tag)
-                    .where("community_tags.nid = ? AND name LIKE ?", self.id, tag+":%")
+                    .where("community_tags.nid = ? AND name LIKE ?", self.id, key + ":%")
                     .collect(&:tid)
     DrupalNodeCommunityTag.where('nid = ? AND tid IN (?)', self.id, tids).length > 0
   end
@@ -398,10 +400,40 @@ class DrupalNode < ActiveRecord::Base
     DrupalNodeCommunityTag.where('nid = ? AND tid NOT IN (?)', self.id, tids)
   end
 
-  def has_tag(tag)
-    tids = DrupalTag.includes(:drupal_node_community_tag)
-                    .where("community_tags.nid = ? AND name LIKE ?", self.id, tag)
-                    .collect(&:tid)
+  # accests a tagname /or/ tagname ending in wildcard such as "tagnam*"
+  # also searches for other tags whose parent field matches given tagname,
+  # but not tags matching given tag's parent field
+  def has_tag(tagname)
+    tags = self.get_matching_tags_without_aliasing(tagname)
+    # search for tags with parent matching this
+    tags += DrupalTag.includes(:drupal_node_community_tag)
+                     .where("community_tags.nid = ? AND parent LIKE ?", self.id, tagname)
+    # search for parent tag of this, if exists
+    #tag = DrupalTag.where(name: tagname).try(:first)
+    #if tag && tag.parent
+    #  tags += DrupalTag.includes(:drupal_node_community_tag)
+    #                   .where("community_tags.nid = ? AND name LIKE ?", self.id, tag.parent)
+    #end
+    tids = tags.collect(&:tid).uniq
+    DrupalNodeCommunityTag.where('nid IN (?) AND tid IN (?)', self.id, tids).length > 0
+  end
+
+  # can return multiple DrupalTag records -- we don't yet hard-enforce uniqueness, but should soon
+  # then, this would just be replaced by DrupalTag.where(name: tagname).first
+  def get_matching_tags_without_aliasing(tagname)
+    tags = DrupalTag.includes(:drupal_node_community_tag)
+                    .where("community_tags.nid = ? AND name LIKE ?", self.id, tagname)
+    # search for tags which end in wildcards
+    if tagname[-1] == '*'
+      tags += DrupalTag.includes(:drupal_node_community_tag)
+                       .where("community_tags.nid = ? AND (name LIKE ? OR name LIKE ?)", self.id, tagname, tagname.gsub('*', '%'))
+    end
+    tags
+  end
+
+  def has_tag_without_aliasing(tagname)
+    tags = self.get_matching_tags_without_aliasing(tagname)
+    tids = tags.collect(&:tid).uniq
     DrupalNodeCommunityTag.where('nid IN (?) AND tid IN (?)', self.id, tids).length > 0
   end
 
@@ -668,13 +700,13 @@ class DrupalNode < ActiveRecord::Base
 
   def add_tag(tagname,user)
     tagname = tagname.downcase
-    unless self.has_tag(tagname)
+    unless self.has_tag_without_aliasing(tagname)
       saved = false
       tag = DrupalTag.find_by_name(tagname) || DrupalTag.new({
-        :vid => 3, # vocabulary id; 1
-        :name => tagname,
-        :description => "",
-        :weight => 0
+        vid:         3, # vocabulary id; 1
+        name:        tagname,
+        description: "",
+        weight:      0
       })
       ActiveRecord::Base.transaction do
         if tag.valid?

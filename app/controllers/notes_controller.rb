@@ -122,9 +122,9 @@ class NotesController < ApplicationController
     params[:size] = params[:size] || :large
     node = DrupalNode.find(params[:id])
     if node.main_image
-      redirect_to image.path(params[:size])
+      redirect_to node.main_image.path(params[:size])
     else
-      return "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+      redirect_to "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
     end
   end
 
@@ -244,8 +244,6 @@ class NotesController < ApplicationController
         end
         @node.save!
         flash[:notice] = I18n.t('notes_controller.edits_saved')
-        # Notice: Temporary redirect.Remove this condition after questions show page is complete.
-        #         Just keep @node.path(:question)
         format = false
         format = :question if params[:redirect] && params[:redirect] == 'question'
         if request.xhr?
@@ -255,7 +253,11 @@ class NotesController < ApplicationController
         end
       else
         flash[:error] = I18n.t('notes_controller.edit_not_saved')
-        render :action => :edit
+         if params[:rich]
+           render 'editor/rich'
+         else
+           render 'editor/post'
+        end
       end
     end
   end
